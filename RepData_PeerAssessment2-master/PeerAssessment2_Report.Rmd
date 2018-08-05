@@ -1,0 +1,274 @@
+---
+title: "US Most Harmful Weather-Related Events since 1950"
+---
+
+### Synopsis
+
+The present report answers the questions of which weather-related events in the United States have had the largest impact measured as fatalities and injuries in populations, as well as the economic losses in property and crops.  
+The analysis was performed using the info recorded in the **U.S. National Oceanic and Atmospheric Administration's (NOAA)** storm database that stores quantitative and qualitative data since 1950.  
+**Tornados** are the main cause of fatalities and injuries, and the third in economic losses during the period covered by the dataset.  
+**Floods** are the main cause of economic losses in property and crops.
+
+### Data Processing
+
+The first step is to load the required packages.    
+
+```{r Load_Packages, cache=TRUE, message=FALSE, warning=FALSE}
+# Load required packages
+require(data.table)
+require(ggplot2)
+```
+
+Then loads the data from a bz2 file in the 'RepData_PeerAssessment2' directory
+within the current working directory.    
+
+```{r Load_Data, cache=TRUE}
+# Load data
+df <- read.csv('StormData.csv.bz2', stringsAsFactors = FALSE)
+# Convert dataframe into datatable object and remove unused dataframe
+dt <- data.table(df)
+rm(df)
+```
+
+Explore the structure of the dataset.
+
+```{r Exploring_Data}
+str(dt)
+```
+
+And finally load the definition of a function used to convert data about 
+economic losses into million of dollars. 
+
+```{r Function, cache=TRUE}
+# Function to convert in economic units
+to_DollarAmount <- function(amount, unit = ''){
+    # Convert 'amount' dollars depending on the value of 'unit'
+    # If 'unit' is not in [K,k,M,m,B,b] assumes that 'amount' is in dollars
+    x <- ifelse(unit == 'K' | unit == 'k', amount * 1000,
+                ifelse(unit == "M" | unit == 'm', amount * 1000000,
+                       ifelse(unit == "B" | unit == 'b', amount * 1000000000,
+                              amount
+                              )
+                       )
+                )
+    # Return transformed to millions
+    return(x/1000000)
+}
+```
+
+Build the first working datatable, `dtw_1`, to deal with human-related losses.  
+Four new datatables are created:
+
+- `top_events_fat` to store the top 10 list of Types of Events ordered by the number of 
+accumulated Fatalities.
+
+- `top_states_fat` to store the top 3 list of States with the largest number of 
+Fatalities due to most harmful type of events measured as number of death people.  
+
+- `top_events_inj` to store the top 10 list of Types of Events ordered by the number of 
+accumulated Injuries.
+
+- `top_states_inj` to store the top 3 list of States with the largest number of 
+Injuries due to most harmful type of events measured as number of injured people.
+
+```{r First_datatable, cache=TRUE}
+# Select rows with Fatalities or Injuries > 0
+# Select and rename columns to retrieve
+dtw_1 <- dt[FATALITIES > 0 | INJURIES > 0,
+            list(Event = EVTYPE, State = STATE,
+                 Fatalities = FATALITIES, Injuries = INJURIES)
+            ]
+# Lists based on Fatalities
+# Top 10 list of Type of Events ordered by the number of Fatalities
+top_events_fat <- dtw_1[ ,
+                      list(Fatalities = sum(Fatalities)),
+                      by = Event
+                      ][order(-Fatalities)][1:10]
+print(top_events_fat)
+
+# Top 3 list of States with most harmful Event measured by the number of death
+# people.
+top_states_fat <- dtw_1[Event == top_events_fat$Event[1],
+                      list(Fatalities = sum(Fatalities),
+                           Percentage = sum(Fatalities)/sum(dtw_1$Fatalities)),
+                      by = State
+                      ][order(-Fatalities)][1:3]
+print(top_states_fat)
+
+# Top 10 list of Type of Events ordered by number of Injuries
+top_events_inj <- dtw_1[ ,
+                      list(Injuries = sum(Injuries)),
+                      by = Event
+                      ][order(-Injuries)][1:10]
+print(top_events_inj)
+
+# Top 3 list of States with most harmful Event measured by the number of injured
+# people.
+top_states_inj <- dtw_1[Event == top_events_inj$Event[1],
+                      list(Injuries = sum(Injuries),
+                           Percentage = sum(Injuries)/sum(dtw_1$Injuries)),
+                      by = State
+                      ][order(-Injuries)][1:3]
+print(top_states_inj)
+
+```
+
+Create the first figure to include in the report section.    
+
+```{r First_Graph, cache=TRUE}
+# Chart1: Most harmful type of events based on direct fatalities
+# First get the order for the horizontal-axis
+orderlist_1 <- rev(top_events_fat$Event)
+
+# Start building the chart
+g1 <- ggplot(data = top_events_fat, 
+             aes(x = factor(Event), y = Fatalities))
+g1 <- g1 + geom_bar(stat='identity', fill = 'white', color = 'black')
+g1 <- g1 + xlab('Events') + ylab('Number of Fatalities')
+g1 <- g1 + ggtitle('Most Harmful Types of Events')
+g1 <- g1 + scale_x_discrete(limits = orderlist_1)
+g1 <- g1 + coord_flip()
+
+```
+
+Create the second figure to include in the report section. 
+
+```{r Second_Graph, cache=TRUE}
+# Chart2: Most harmful type of events based on direct injuries
+# First get the order for the horizontal-axis
+orderlist_2 <- rev(top_events_inj$Event)
+
+# Start building the chart
+g2 <- ggplot(data = top_events_inj, 
+             aes(x = factor(Event), y = Injuries))
+g2 <- g2 + geom_bar(stat='identity', fill = 'white', color = 'black')
+g2 <- g2 + xlab('Events') + ylab('Number of Injuries')
+g2 <- g2 + ggtitle('Most Harmful Types of Events')
+g2 <- g2 + scale_x_discrete(limits = orderlist_2)
+g2 <- g2 + coord_flip()
+
+```
+
+
+Build the second working datatable, `dtw_2`, to calculate and store economic 
+damages measured in million dollars.  
+
+The function `to_DollarAmount` is used to transform units ('K', 'M' and 'B') 
+into numeric values to convert figures to million dollars.  
+Two new datatables are created:
+
+- `top_events_dmg` store the list of the 10 most harmful Type of Events ordered by
+the economic damage in million dollars in Property and Crops.
+
+- `top_states_dmg` store the list of the 3 most affected States ordered by dollar
+amount of damages to Property and Crops.
+
+```{r Second_datatable, cache=TRUE}
+# Select rows with property and/or crop economic damages > 0 
+# Select and rename columns to retrieve, and applies function to convert and 
+# calculate dollar amounts in millions.
+dtw_2 <- dt[PROPDMG > 0 | CROPDMG > 0,
+            list(Event = EVTYPE, State = STATE,
+                 PropDmgT = to_DollarAmount(PROPDMG, PROPDMGEXP), 
+                 CropDmgT = to_DollarAmount(CROPDMG, CROPDMGEXP)
+                 )
+            ]
+# Accumulate total amount of damages in million dollars by event, store in 
+# TotDmg variable and order by it.
+dtw_2 <- dtw_2[ , TotDmg := (PropDmgT + CropDmgT)][order(-TotDmg)]
+
+# Eliminates unused columns
+dtw_2 <- dtw_2[ , c('PropDmgT', 'CropDmgT') := NULL]
+
+# Accumulates total amount of damages by State and Event
+dtw_2 <- dtw_2[ , lapply(.SD, sum), by = c('State', 'Event')]
+
+# Top 10 list of Type of Event ordered by amount of economic damage
+top_events_dmg <- dtw_2[ ,
+                      list(TotalDmg = round(sum(TotDmg))),
+                      by = Event
+                      ][order(-TotalDmg)][1:10]
+print(top_events_dmg)
+
+# Top 3 list of States ordered by amount of economic damage
+top_states_dmg <- dtw_2[ ,
+                      list(TotalDmg = round(sum(TotDmg))),
+                      by = State
+                      ][order(-TotalDmg)][1:3] 
+print(top_states_dmg)
+```
+
+Create the third plot to include in the report section.   
+
+```{r Third_Graph, cache=TRUE}
+# Chart3: Most harmful type of events based on direct economic damages on 
+# property and crops.
+# Order the horizontal-axis
+#orderlist_3 <- rev(top_events_dmg$Event)
+
+# Start building the chart
+g3 <- ggplot(data = top_events_dmg, 
+             aes(x = factor(Event), y = TotalDmg))
+g3 <- g3 + geom_bar(stat='identity', fill = 'white', color = 'black')
+g3 <- g3 + xlab('Events') + ylab('$ Millions')
+g3 <- g3 + ggtitle('Most Harmful Types of Events')
+g3 <- g3 + scale_x_discrete(limits = rev(top_events_dmg$Event))
+g3 <- g3 + coord_flip()
+
+```
+
+
+### Results
+
+####1. Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health? 
+
+#####a. Most harmful Events based on Fatalities 
+The following graph includes the list of the most harmful Type of Events over
+the period recorded in the dataset, ordered by the number of direct Fatalities
+caused.  
+
+```{r Print_Chart1, echo=FALSE}
+print(g1)
+```
+
+The most harmful type of event measured as the number of fatalities over the period sampled, is the **`r top_events_fat$Event[1]`** event. It caused **`r round(top_events_fat$Fatalities[1])`** direct fatalities. 
+
+The US State with the largest amount of recorded deaths due to this type of
+events is **`r top_states_fat$State[1]`** with **`r top_states_fat$Fatalities[1]`**
+fatalities, representing a **`r sprintf('%3.1f%%', top_states_fat$Percentage[1]*100)`** of total number
+of deaths.  
+
+#####b. Most harmful Events based on Injuries 
+The next plot includes the list of the most harmful Type of Events over
+the period recorded in the dataset, ordered by the number of direct Injuries
+caused.  
+
+```{r Print_Chart2, echo=FALSE}
+print(g2)
+```
+
+Taken the number of injured people, the most harmful type of event in the 
+dataset, is the **`r top_events_inj$Event[1]`** event, that caused **`r sprintf('%5.0f', top_events_inj$Injuries[1])`** direct Injuries.  
+
+The US State with the largest amount of injured people is **`r top_states_inj$State[1]`** 
+that suffered **`r top_states_inj$Injuries[1]`** injuries, accounting for **`r sprintf('%3.1f%%',top_states_inj$Percentage[1]*100)`** of the total.  
+
+  
+####2. Across the United States, which types of events have the greatest economic consequences?
+
+>For this report it is assumed that all the information provided is correct.  
+>It is noted, however, that the dataset includes some figures that seems to be wrong. See the discussion in the forum in this [link][1].  
+
+The types of events that have the greatest economic impact are included in the
+following chart, where horizontal-axis accounts for the amount of direct economic damages measured in current $ million.
+
+```{r Print_Chart3, echo=FALSE}
+print(g3)
+```
+
+
+The US State that recorded the highest amounts of economic damages is **`r top_states_dmg$State[1]`** with more than **`r sprintf('%3.0f', top_states_dmg$TotalDmg[1]/1000)`** 
+millions (measured in current dollars).
+
+[1]: https://class.coursera.org/repdata-016/forum/thread?thread_id=130 "Forum"
+
